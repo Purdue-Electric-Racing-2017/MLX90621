@@ -10,7 +10,7 @@
 
 typedef struct {
 	I2C_HandleTypeDef * i2c;
-	uint16_t rawIR[64];
+	uint16_t rawIR[66];
 	uint8_t delA[64];		///64 member array of IR pixel individual offset delta coefficient
 	int8_t TaDep[64]; 	/**64 member array of Individual Ta dependence (slope)
 				  	  	  	  of IR pixels offset*/
@@ -27,6 +27,10 @@ typedef struct {
 	int8_t   tgc;		///Thermal gradient coefficient
 	uint8_t  Ai_scale;	///Scaling coeff for the IR pixels offset (delA[])
 	uint8_t  Bi_scale;	///Scaling coeff of the IR pixels offset Ta dep. (TaDep[])
+	int16_t Vth; // Vth0 of absolute temperature sensor
+	int16_t Kt1; // Kt1 of absolute temperature sensor
+	int16_t Kt2; // Kt2 of absolute temperature sensor
+	int8_t Kt_scale; // First nibble is Kt1 scale, second nibble is Kt2 scale
 	uint8_t  alpha0L;	///Common sensitivity coefficient of IR pixels (low)
 	uint8_t  alpha0H;	///Common sensitivity coefficient of IR pixels (high)
 	uint8_t  alpha0Scale; ///Scaling coefficient for common sensitivity
@@ -37,7 +41,7 @@ typedef struct {
 	int8_t   KsTaH;		///KsTa (fixed scale coefficient = 20) (high)
 	uint16_t config;	///Configuration register of mlx sensor
 	uint8_t	 OSCtrim;	///Oscillator Trim
-}MLXHandle_t;
+} MLXHandle_t;
 
 MLXHandle_t * MLX_Init(I2C_HandleTypeDef * hi2c);
 

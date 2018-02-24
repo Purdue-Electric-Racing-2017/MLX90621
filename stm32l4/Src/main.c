@@ -41,6 +41,7 @@
 #include "stm32l4xx_hal.h"
 
 /* USER CODE BEGIN Includes */
+#include "MLX90621.h"
 
 /* USER CODE END Includes */
 
