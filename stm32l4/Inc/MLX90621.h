@@ -10,7 +10,8 @@
 
 typedef struct {
 	I2C_HandleTypeDef * i2c;
-	uint16_t rawIR[64];
+	uint8_t rawIR[128];
+	uint8_t ptat[2];		// Absolute ambient temperature data of the device itself (package temperature)
 	uint8_t delA[64];		///64 member array of IR pixel individual offset delta coefficient
 	int8_t TaDep[64]; 	/**64 member array of Individual Ta dependence (slope)
 				  	  	  	  of IR pixels offset*/
@@ -37,8 +38,9 @@ typedef struct {
 	int8_t   KsTaH;		///KsTa (fixed scale coefficient = 20) (high)
 	uint16_t config;	///Configuration register of mlx sensor
 	uint8_t	 OSCtrim;	///Oscillator Trim
-}MLXHandle_t;
+} MLXHandle_t;
 
 MLXHandle_t * MLX_Init(I2C_HandleTypeDef * hi2c);
+HAL_StatusTypeDef MLX_Read_IT(MLXHandle_t * mlx);
 
 #endif /* MLX90621_H_ */
