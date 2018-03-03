@@ -28,7 +28,7 @@
 #define CONFIG_REG_ADDR			0x92
 #define NUM_PIXELS				64
 #define POR_FLAG_MASK			0x800
-#define READ_WHOLE_EEPROM 		0x0
+#define READ_WHOLE_EEPROM 		0x00
 #define MLX_I2C_RAM_SA_W  		0xC0
 #define MLX_I2C_RAM_SA_R		0xC1
 #define MLX_ARRAY_START			0x00
@@ -39,10 +39,11 @@
 #define PTAT_STEP_SIZE			0x00
 #define PTAT_NUM_READS			0x01
 #define SIZE_SEND				4
-#define CONFIG_MASK				0x3
-#define EEPROM_MASK				0xF
+#define CONFIG_MASK				0x03
+#define EEPROM_MASK				0x0F
 #define ABSOLUTE_TEMP           273.15
 #define TWO_BYTE_MAX 		    32768
+#define SHIFTER					256
 
 /**
  * \brief this function reads from the melexis sensor by polling
@@ -89,6 +90,25 @@ MLXHandle_t * MLX_Init(I2C_HandleTypeDef * hi2c)
 
 	//Read whole EEPROM
 	uint8_t tempEEPROM[256];
+
+
+	tempEEPROM[0xDA] = 0x20;
+	tempEEPROM[0xDB] = 0x64;
+	tempEEPROM[0xDC] = 0x89;
+	tempEEPROM[0XDD] = 0x55;
+	tempEEPROM[0XDE] = 0x7E;
+	tempEEPROM[0XDF] = 0x5E;
+	tempEEPROM[0XD2] = 0x8B;
+
+	// POSSIBLE FIX?
+	/*uint8_t xz[1] = {READ_WHOLE_EEPROM};
+	if(HAL_OK == HAL_I2C_Master_Sequential_Transmit_IT(mlx->i2c, MLX_I2C_WRITE_EEPROM, xz, 1, I2C_FIRST_FRAME)) {
+		if(HAL_OK != HAL_I2C_Master_Sequential_Receive_IT(mlx->i2c,
+				MLX_I2C_READ_EEPROM, tempEEPROM, 256, I2C_FIRST_FRAME)) {
+			return NULL;
+		}
+	}*/
+
 	if (HAL_OK != MLX_Read(mlx, READ_WHOLE_EEPROM, MLX_I2C_READ_EEPROM,
 			tempEEPROM, sizeof(*tempEEPROM*265))) {
 		free(mlx);
@@ -203,24 +223,25 @@ double Calc_Ta(MLXHandle_t* mlx) {
 
 	// Calculating Vth
 	uint8_t config_reg = (uint8_t) ((mlx -> config) >> 4) & CONFIG_MASK;
-	(mlx -> Vth) = (mlx -> Vth) / pow(2, 3-config_reg);
+	config_reg = 3; //HARD
+	double v = (mlx->Vth) / pow(2, 3-config_reg);
 
 	// Calculating Kt1
 	uint8_t Kt_scale_shift1 = (uint8_t) ((mlx -> Kt_scale) >> 4) & EEPROM_MASK;
-	(mlx -> Kt1) = (mlx -> Kt1) / (pow(2, Kt_scale_shift1) * pow(2, 3-config_reg));
+	Kt_scale_shift1 = 8; //HARD
+	double kt1 = (mlx->Kt1) / (pow(2, Kt_scale_shift1) * pow(2, 3-config_reg));
 
 	// Calculating Kt2
 	uint8_t Kt_scale_shift2 = (uint8_t) (mlx -> Kt_scale) & EEPROM_MASK;
-	(mlx -> Kt2) = (mlx -> Kt2) / (pow(2, Kt_scale_shift2+10) * pow(2, 3-config_reg));
+	double kt2 = (mlx -> Kt2) / (pow(2, Kt_scale_shift2+10) * pow(2, 3-config_reg));
 
 	// Extracting PTAT_Data
-	uint16_t PTAT_data = (mlx->rawIR)[64];
-
+	uint16_t PTAT_data = (*(mlx->ptat));
+	PTAT_data = 0x67DE; //HARD
 	// Calculating Ta
-	double Ta = (-(mlx->Kt1)+sqrt(pow(mlx->Kt1,2))-4*(mlx->Kt2)*((mlx->Vth-PTAT_data)))
-																  /(2*(mlx->Kt2)) + 25;
+	double numer = -kt1 + sqrt(pow(kt1, 2) - (4 * kt2 * (v - PTAT_data)));
+	double Ta = (numer / (2*(kt2))) + 25;
 	return Ta;
-
 }
 
 /**
@@ -237,7 +258,7 @@ double Calc_Vir_Compensated(MLXHandle_t* mlx, int8_t i, int8_t j, double Ta) {
 
 	// Vir Offset Compensation
 	double Ai, Bi;
-	uint8_t address = i + 4*j;
+	uint8_t address = (i + 4*j);
 	int8_t Ta0 = 25;
 	uint8_t config_reg = (uint8_t) ((mlx->config)>>4) & CONFIG_MASK;
 
@@ -346,13 +367,33 @@ double MLX_CalcTemp(MLXHandle_t* mlx, int8_t i, int8_t j) {
 	// Calculating Sx
 	double tmp1 = pow(Alpha_Compensated, 3)*Vir_Compensated;
 	double tmp2 = pow(Alpha_Compensated, 4)*TaK4;
-	double Sx = Ks4*pow(tmp1+tmp2, 1/4);
+	double Sx = Ks4*pow(tmp1+tmp2, 1.0/4.0);
 
 	// Calculating T0
 	double tmp3 = Alpha_Compensated*(1-Ks4*ABSOLUTE_TEMP) + Sx;
-	double t0 = pow((Vir_Compensated/tmp3)+TaK4, 1/4) - ABSOLUTE_TEMP;
+	double t0 = pow((Vir_Compensated/tmp3)+TaK4, 1.0/4.0) - ABSOLUTE_TEMP;
 
 	return t0;
+}
+
+double Jank(double t0) {
+	printf("JANK");
+	printf("JANK");
+	printf("JANK");
+	printf("JANK");
+	printf("JANK");
+	printf("JANK");
+	return t0;
+}
+
+double Jank2(uint16_t t0) {
+	printf("JANK");
+	printf("JANK");
+	printf("JANK");
+	printf("JANK");
+	printf("JANK");
+	printf("JANK");
+	return 0;
 }
 
 

@@ -7,11 +7,13 @@
 
 #ifndef MLX90621_H_
 #define MLX90621_H_
+#include <stdio.h>
+#include <stdlib.h>
 
 typedef struct {
 	I2C_HandleTypeDef * i2c;
-	uint8_t rawIR[128];
-	uint8_t ptat[2];		// Absolute ambient temperature data of the device itself (package temperature)
+	uint16_t rawIR[64];
+	uint16_t ptat[1];		// Absolute ambient temperature data of the device itself (package temperature)
 	uint8_t delA[64];		///64 member array of IR pixel individual offset delta coefficient
 	int8_t TaDep[64]; 	/**64 member array of Individual Ta dependence (slope)
 				  	  	  	  of IR pixels offset*/
@@ -35,7 +37,7 @@ typedef struct {
 	uint8_t  alpha0L;	///Common sensitivity coefficient of IR pixels (low)
 	uint8_t  alpha0H;	///Common sensitivity coefficient of IR pixels (high)
 	uint8_t  alpha0Scale; ///Scaling coefficient for common sensitivity
-	uint8_t  delAlphaScale; ///Scaling coefficient for individual sensitivit
+	uint8_t  delAlphaScale; ///Scaling coefficient for individual sensitivity
 	uint8_t  epsilL; 	///Emissivity (low)
 	uint8_t  epsilH;	///Emissivity (high)
 	int8_t   KsTaL;		///KsTa (fixed scale coefficient = 20) (low)
@@ -46,5 +48,9 @@ typedef struct {
 
 MLXHandle_t * MLX_Init(I2C_HandleTypeDef * hi2c);
 HAL_StatusTypeDef MLX_Read_IT(MLXHandle_t * mlx);
+double MLX_CalcTemp(MLXHandle_t* mlx, int8_t i, int8_t j);
+double Jank(double t0);
+double Calc_Ta(MLXHandle_t* mlx);
+double Jank2(uint16_t t0);
 
 #endif /* MLX90621_H_ */
