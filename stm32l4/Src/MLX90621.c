@@ -7,9 +7,13 @@
 
 #include "stm32l4xx_hal.h"
 #include "stm32l4xx_hal_i2c.h"
+#include "stm32l4xx_hal_def.h"
 #include <stdlib.h>
+#include <string.h>
 #include "MLX90621.h"
-#define MLXPOLL_DELAY 100
+#include <stdbool.h>
+
+#define MLXPOLL_DELAY 			100
 #define MLX_I2C_WRITE_EEPROM 	0xA0
 #define MLX_I2C_READ_EEPROM 	0xA1
 #define MLX_I2C_READ_RAM		0xC1
@@ -17,12 +21,21 @@
 #define WRITE_OSC_TRIM			0x04
 #define WRITE_CONFIG_REG		0x03
 #define READ_CONFIG_REG			0x02
+#define MLX_READ_RAM_CMND		0x02
 #define CONFIG_REG_ADDR			0x92
 #define NUM_PIXELS				64
 #define POR_FLAG_MASK			0x800
 #define READ_WHOLE_EEPROM 		0x0
-
-
+#define MLX_I2C_RAM_SA_W  		0xC0
+#define MLX_I2C_RAM_SA_R		0xC1
+#define MLX_ARRAY_START			0x00
+#define MLX_STEP_SIZE			0x01
+#define MLX_NUM_READS			0x40
+#define MLX_MEM_ADD_SIZE 		(0x00000001U)
+#define PTAT_START_ADDR			0x40
+#define PTAT_STEP_SIZE			0x00
+#define PTAT_NUM_READS			0x01
+#define SIZE_SEND				4
 /**
  * \brief this function reads from the melexis sensor by polling
  * \param MLXHandle_t * mlx pointer to the melexis handle
@@ -51,13 +64,11 @@ HAL_StatusTypeDef MLX_WriteRAM(MLXHandle_t * mlx, uint16_t slave_addr,
 {
 	return HAL_I2C_Master_Transmit(mlx->i2c, MLX_I2C_WRITE_RAM, src, srcSize, MLXPOLL_DELAY);
 }
-/* This function is supposed to Initiate a read request to mlx device*/
-void MLX_Read_IT(MLXHandle * mlx){
-	//Check POR/Brownout Flag
-	uint16_t tempConfigReg;
-	MLX_Read(mlx, READ_CONFIG_REG, &tempConfigReg, sizeof)
-	//Initiate data request
 
+HAL_StatusTypeDef MLX_ReadRAM(MLXHandle_t * mlx, uint16_t slave_addr,
+		uint8_t * dat_buff, uint16_t bufSize)
+{
+	return HAL_I2C_Master_Receive(mlx->i2c, MLX_I2C_READ_RAM, dat_buff, bufSize, MLXPOLL_DELAY);
 }
 
 /**
@@ -77,7 +88,7 @@ MLXHandle_t * MLX_Init(I2C_HandleTypeDef * hi2c)
 	//Read whole EEPROM
 	uint8_t tempEEPROM[256];
 	if (HAL_OK !=
-			MLX_Read(mlx,READ_WHOLE_EEPROM, MLX_I2C_READ_EEPROM, tempEEPROM, sizeof(*tempEEPROM*265)))
+			MLX_Read(mlx, READ_WHOLE_EEPROM, MLX_I2C_READ_EEPROM, tempEEPROM, sizeof(*tempEEPROM*265)))
 	{
 		free(mlx);
 		return NULL;
@@ -127,17 +138,59 @@ MLXHandle_t * MLX_Init(I2C_HandleTypeDef * hi2c)
 	packet[2] = tempEEPROM[0xF5];
 	packet[3] = tempEEPROM[0xF6] - 0x55;
 	packet[4] = tempEEPROM[0xF6];
-		if (HAL_OK != MLX_WriteRAM(mlx, MLX_I2C_WRITE_RAM, packet,
-				sizeof(*packet)*4)) {
+	if (HAL_OK != MLX_WriteRAM(mlx, MLX_I2C_WRITE_RAM, packet, sizeof(*packet)*4)) {
 			free(mlx);
 			return NULL;
-		}
+	}
 	free(mlx);
 	return mlx;
 
 }
 
-//void MLX_DeInit()
-//void MLX_CalcTemp()
+HAL_StatusTypeDef MLX_Read_IT(MLXHandle_t * mlx)
+{
+	// READ CONFIG REGISTER
+	/*uint8_t por_check[2];
+	uint8_t por_flag[4] = {MLX_READ_RAM_CMND, CONFIG_REG_ADDR, MLX_ARRAY_START, PTAT_NUM_READS};
+	if(HAL_I2C_Master_Sequential_Transmit_IT(mlx->i2c, MLX_I2C_WRITE_RAM, por_flag, SIZE_SEND, I2C_FIRST_FRAME) == HAL_OK) {
+		if(HAL_I2C_Master_Sequential_Receive_IT(mlx->i2c, MLX_I2C_READ_RAM, por_check, 2, I2C_FIRST_FRAME) != HAL_OK) {
+			return HAL_BUSY;
+		} else {
+			printf("0:%d, 1:%d", por_check[0], por_check[1]);
+			return HAL_OK;
+		}
+	} else {
+		return HAL_BUSY;
+	}
+	// CHECK THAT POR FLAG IS NOT CLEARED
+	if((por_check[1] & 0x04) == 0) {
+		MLX_Init(mlx->i2c);
+		return HAL_BUSY;
+	}*/
+
+	// READ SENSOR DATA
+	uint8_t ptatdata[4] = {MLX_READ_RAM_CMND, PTAT_START_ADDR, PTAT_STEP_SIZE, PTAT_NUM_READS};
+	uint8_t pdata[4] = {MLX_READ_RAM_CMND, MLX_ARRAY_START, MLX_STEP_SIZE, MLX_NUM_READS};
+	uint16_t SizeSend = 4;
+	uint16_t SizeReceive = 128;
+	uint16_t PtatReceive = 2;
+
+	// Sensor Data (Temperature / PTAT)
+	if(HAL_I2C_Master_Sequential_Transmit_IT(mlx->i2c, MLX_I2C_RAM_SA_W, ptatdata,
+		SizeSend, I2C_FIRST_FRAME) == HAL_OK) {
+	if(HAL_I2C_Master_Sequential_Receive_IT(mlx->i2c, MLX_I2C_RAM_SA_R, mlx->ptat,
+		PtatReceive, I2C_FIRST_FRAME) != HAL_OK) {
+			return HAL_BUSY;
+		}
+	}
+
+	// Tire Data (Temperature)
+	if(HAL_I2C_Master_Sequential_Transmit_IT(mlx->i2c, MLX_I2C_RAM_SA_W, pdata,
+		SizeSend, I2C_FIRST_FRAME) == HAL_OK) {
+		return HAL_I2C_Master_Sequential_Receive_IT(mlx->i2c, MLX_I2C_RAM_SA_R, mlx->rawIR,
+		SizeReceive, I2C_FIRST_FRAME);
+	}
+	return HAL_BUSY;
+}
 
 

@@ -41,6 +41,7 @@
 #include "stm32l4xx_hal.h"
 
 /* USER CODE BEGIN Includes */
+#include "MLX90621.h"
 
 /* USER CODE END Includes */
 
@@ -97,6 +98,7 @@ int main(void)
   MX_I2C1_Init();
 
   /* USER CODE BEGIN 2 */
+  MLXHandle_t * mlx_test = MLX_Init(&hi2c1);
 
   /* USER CODE END 2 */
 
@@ -104,12 +106,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-  /* USER CODE END WHILE */
-
-  /* USER CODE BEGIN 3 */
-	  MLXHandle_t * mlx_test = MLX_Init(&hi2c1);
+	  MLX_Read_IT(mlx_test);
   }
-  /* USER CODE END 3 */
 
 }
 
