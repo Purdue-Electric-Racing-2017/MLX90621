@@ -28,6 +28,10 @@ typedef struct {
 	int8_t   tgc;		///Thermal gradient coefficient
 	uint8_t  Ai_scale;	///Scaling coeff for the IR pixels offset (delA[])
 	uint8_t  Bi_scale;	///Scaling coeff of the IR pixels offset Ta dep. (TaDep[])
+	int16_t Vth; // Vth0 of absolute temperature sensor
+	int16_t Kt1; // Kt1 of absolute temperature sensor
+	int16_t Kt2; // Kt2 of absolute temperature sensor
+	int8_t Kt_scale; // First nibble is Kt1 scale, second nibble is Kt2 scale
 	uint8_t  alpha0L;	///Common sensitivity coefficient of IR pixels (low)
 	uint8_t  alpha0H;	///Common sensitivity coefficient of IR pixels (high)
 	uint8_t  alpha0Scale; ///Scaling coefficient for common sensitivity

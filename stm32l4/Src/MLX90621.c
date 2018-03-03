@@ -1,5 +1,6 @@
 /*
  * MLX90621.c
+
  *
  *  Created on: Jan 19, 2018
  *      Author: locch
@@ -10,6 +11,8 @@
 #include "stm32l4xx_hal_def.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <math.h>
 #include "MLX90621.h"
 #include <stdbool.h>
 
@@ -36,6 +39,11 @@
 #define PTAT_STEP_SIZE			0x00
 #define PTAT_NUM_READS			0x01
 #define SIZE_SEND				4
+#define CONFIG_MASK				0x3
+#define EEPROM_MASK				0xF
+#define ABSOLUTE_TEMP           273.15
+#define TWO_BYTE_MAX 		    32768
+
 /**
  * \brief this function reads from the melexis sensor by polling
  * \param MLXHandle_t * mlx pointer to the melexis handle
@@ -65,14 +73,8 @@ HAL_StatusTypeDef MLX_WriteRAM(MLXHandle_t * mlx, uint16_t slave_addr,
 	return HAL_I2C_Master_Transmit(mlx->i2c, MLX_I2C_WRITE_RAM, src, srcSize, MLXPOLL_DELAY);
 }
 
-HAL_StatusTypeDef MLX_ReadRAM(MLXHandle_t * mlx, uint16_t slave_addr,
-		uint8_t * dat_buff, uint16_t bufSize)
-{
-	return HAL_I2C_Master_Receive(mlx->i2c, MLX_I2C_READ_RAM, dat_buff, bufSize, MLXPOLL_DELAY);
-}
-
 /**
- * \brief this function initializes the mlx deveice and stores
+ * \brief this function initializes the mlx device and stores
  * its EEPROM values in the mlx handle
  * \param I2C_HandleTypeDef * hi2c pointer to the i2c handle
  * \retval mlx handle
@@ -87,9 +89,8 @@ MLXHandle_t * MLX_Init(I2C_HandleTypeDef * hi2c)
 
 	//Read whole EEPROM
 	uint8_t tempEEPROM[256];
-	if (HAL_OK !=
-			MLX_Read(mlx, READ_WHOLE_EEPROM, MLX_I2C_READ_EEPROM, tempEEPROM, sizeof(*tempEEPROM*265)))
-	{
+	if (HAL_OK != MLX_Read(mlx, READ_WHOLE_EEPROM, MLX_I2C_READ_EEPROM,
+			tempEEPROM, sizeof(*tempEEPROM*265))) {
 		free(mlx);
 		return NULL;
 	}
@@ -110,7 +111,13 @@ MLXHandle_t * MLX_Init(I2C_HandleTypeDef * hi2c)
 	mlx->tgc = tempEEPROM[0xD8];
 	mlx->delAlphaScale = tempEEPROM[0xD9];
 	mlx->Bi_scale = tempEEPROM[0xD9];
-	mlx->alpha0L = tempEEPROM[0xE0];
+	////// Added by: Aninda Saha ///////
+	memcpy(&(mlx->Vth), &tempEEPROM[0xDA], sizeof(mlx->Vth));
+	memcpy(&(mlx->Kt1), &tempEEPROM[0xDC], sizeof(mlx->Kt1));
+	memcpy(&(mlx->Kt2), &tempEEPROM[0xDE], sizeof(mlx->Kt2));
+	mlx->Kt_scale = tempEEPROM[0xD2];
+	///////////////////////////////
+ 	mlx->alpha0L = tempEEPROM[0xE0];
 	mlx->alpha0H = tempEEPROM[0xE1];
 	mlx->alpha0Scale = tempEEPROM[0xE2];
 	mlx->delAlphaScale = tempEEPROM[0xE3];
@@ -144,26 +151,16 @@ MLXHandle_t * MLX_Init(I2C_HandleTypeDef * hi2c)
 	}
 	free(mlx);
 	return mlx;
-
 }
 
-HAL_StatusTypeDef MLX_Read_IT(MLXHandle_t * mlx)
-{
-	// READ CONFIG REGISTER
-	/*uint8_t por_check[2];
-	uint8_t por_flag[4] = {MLX_READ_RAM_CMND, CONFIG_REG_ADDR, MLX_ARRAY_START, PTAT_NUM_READS};
-	if(HAL_I2C_Master_Sequential_Transmit_IT(mlx->i2c, MLX_I2C_WRITE_RAM, por_flag, SIZE_SEND, I2C_FIRST_FRAME) == HAL_OK) {
-		if(HAL_I2C_Master_Sequential_Receive_IT(mlx->i2c, MLX_I2C_READ_RAM, por_check, 2, I2C_FIRST_FRAME) != HAL_OK) {
-			return HAL_BUSY;
-		} else {
-			printf("0:%d, 1:%d", por_check[0], por_check[1]);
-			return HAL_OK;
-		}
-	} else {
-		return HAL_BUSY;
-	}
+/**
+ * \brief this function reads IR from the melexis sensor in sequential interrupt mode
+ * \param MLXHandle_t * mlx pointer to the melexis handle
+ * \retval HAL_Status
+ */
+HAL_StatusTypeDef MLX_Read_IT(MLXHandle_t * mlx) {
 	// CHECK THAT POR FLAG IS NOT CLEARED
-	if((por_check[1] & 0x04) == 0) {
+	/*if(((mlx->config) & (0x0400)) == 0) {
 		MLX_Init(mlx->i2c);
 		return HAL_BUSY;
 	}*/
@@ -191,6 +188,171 @@ HAL_StatusTypeDef MLX_Read_IT(MLXHandle_t * mlx)
 		SizeReceive, I2C_FIRST_FRAME);
 	}
 	return HAL_BUSY;
+}
+
+/**
+ * \brief - this function calculates the absolute chip temperatures
+ *
+ * \param - MLXHandle_t* mlx - the pointer to the melexis handle
+ *
+ * \retval - (double) calculated absolute chip temperature
+ */
+double Calc_Ta(MLXHandle_t* mlx) {
+
+	// Ta = (-Kt1 + sqrt(power(Kt1, 2)-4*Kt2*(Vth-PTAT_DATA)))/(2*Kt2) + 25
+
+	// Calculating Vth
+	uint8_t config_reg = (uint8_t) ((mlx -> config) >> 4) & CONFIG_MASK;
+	(mlx -> Vth) = (mlx -> Vth) / pow(2, 3-config_reg);
+
+	// Calculating Kt1
+	uint8_t Kt_scale_shift1 = (uint8_t) ((mlx -> Kt_scale) >> 4) & EEPROM_MASK;
+	(mlx -> Kt1) = (mlx -> Kt1) / (pow(2, Kt_scale_shift1) * pow(2, 3-config_reg));
+
+	// Calculating Kt2
+	uint8_t Kt_scale_shift2 = (uint8_t) (mlx -> Kt_scale) & EEPROM_MASK;
+	(mlx -> Kt2) = (mlx -> Kt2) / (pow(2, Kt_scale_shift2+10) * pow(2, 3-config_reg));
+
+	// Extracting PTAT_Data
+	uint16_t PTAT_data = (mlx->rawIR)[64];
+
+	// Calculating Ta
+	double Ta = (-(mlx->Kt1)+sqrt(pow(mlx->Kt1,2))-4*(mlx->Kt2)*((mlx->Vth-PTAT_data)))
+																  /(2*(mlx->Kt2)) + 25;
+	return Ta;
+
+}
+
+/**
+ * \brief - the parasitic free IR compensated signal
+ *
+ * \param int8_t i - the row value of the pixel being observed
+ * \param int8_t j - the column value of the pixel being observed
+ * \param double Ta - absolute chip temperature as calculated previously
+ *
+ * \retval - (double) Vir compensated value
+ */
+
+double Calc_Vir_Compensated(MLXHandle_t* mlx, int8_t i, int8_t j, double Ta) {
+
+	// Vir Offset Compensation
+	double Ai, Bi;
+	uint8_t address = i + 4*j;
+	int8_t Ta0 = 25;
+	uint8_t config_reg = (uint8_t) ((mlx->config)>>4) & CONFIG_MASK;
+
+	uint16_t Vir = (mlx->rawIR)[address];
+
+	int16_t Acomm = 256*(mlx->AcommH) + (mlx->AcommL);
+	uint8_t delAij = (mlx->delA)[address];
+	uint8_t delA_scale = (uint8_t) ((mlx->delAlphaScale)>>4) & EEPROM_MASK;
+	Ai = (Acomm + delAij*pow(2, delA_scale))/pow(2, 3-config_reg);
+
+	int8_t Bij = (mlx->TaDep)[address];
+	uint8_t Bi_scale = (uint8_t) (mlx->Bi_scale) & EEPROM_MASK;
+	Bi = Bij/(pow(2, Bi_scale)*pow(2, 3-config_reg));
+
+	double Vir_Offcompensated = Vir - (Ai + Bi*(Ta-Ta0));
+
+	// Vir Thermal Gradient Compensation
+	uint16_t Acp = 256*(mlx->AcpH) + (mlx->AcpL);
+	double VirCP_Offcompensated = Acp - (Ai + Bi*(Ta-25));
+	double tgc = (mlx->tgc)/32;
+
+	double VirTGC_Compensated = Vir_Offcompensated - tgc*VirCP_Offcompensated;
+
+	// Emissivity compensation
+	double epsil = (256*(mlx->epsilH)+(mlx->epsilL))/TWO_BYTE_MAX;
+
+	double Vir_Compensated = VirTGC_Compensated/epsil;
+
+	return Vir_Compensated;
+
+}
+
+/**
+ * \brief - this function calculates the Sensitivity to Dependence (slope) by reading
+ * 			in Ks4_EE value from EEPROM and scaling it appropriately
+ *
+ * \param - MLXHandle_t* mlx - the pointer to the melexis handle
+ * \param int8_t i - the row value of the pixel being observed
+ * \param int8_t j - the column value of the pixel being observed
+ * \param double Ta - absolute chip temperature as calculated previously
+ *
+ * \retval (double) alpha compensated value
+ */
+
+double Calc_Alpha_Compensated(MLXHandle_t* mlx, int8_t i, int8_t j, double Ta) {
+
+	// alpha_comp = (1 + KsTa*(Ta-Ta0))*(alpha_ij-tgc*alpha_cp);
+
+	uint8_t TA0 = 25;
+	double KsTa = (256*(mlx->KsTaH)+(mlx->KsTaL))/pow(2,20);
+
+	// Calculating alpha_ij
+	uint8_t config_reg = (uint8_t) ((mlx -> config) >> 4) & CONFIG_MASK;
+	double alpha0 = (256*(mlx->alpha0H)+(mlx->alpha0L))/pow(2, (mlx->alpha0Scale));
+	uint8_t address = i + 4*j;
+	double delAlpha = ((mlx->delA)[address])/pow(2,(mlx->delAlphaScale));
+	double alpha_ij = (alpha0 + delAlpha)/pow(2, 3-config_reg);
+
+	// Calculating alpha_cp
+	double alpha_cp = (256*(mlx->alphaCPH)+(mlx->alphaCPL))/(pow(2,(mlx->alpha0Scale))*
+																pow(2, 3-config_reg));
+
+	double alpha_comp = (1 + KsTa*(Ta-TA0))*(alpha_ij-(mlx->tgc)*alpha_cp);
+
+	return alpha_comp;
+}
+/**
+ * \brief - this function calculates the Sensitivity to Dependence (slope) by reading
+ * 			in Ks4_EE value from EEPROM and scaling it appropriately
+ *
+ * \param - MLXHandle_t* mlx - the pointer to the melexis handle
+ *
+ * \retval - (double) adjusted Ks4_EE value
+ */
+
+double Calc_Ks4(MLXHandle_t* mlx) {
+
+	double Ks4 = (mlx->Ks4_EE)/pow(2, (mlx->Ks_scale)+8);
+	return Ks4;
+}
+
+/**
+ * \brief this function is responsible for calculating the processed temperature
+ * 		  value. the function calls multiple other subroutines to calculate the
+ * 		  necessary parameters
+ *
+ * \param MLXHandle_t* mlx - a pointer to the melexis handle
+ * \param int8_t i - the row value of the pixel being observed
+ * \param int8_t j - the column value of the pixel being observed
+ *
+ * \retval - (double) processed observed temperature
+ */
+
+double MLX_CalcTemp(MLXHandle_t* mlx, int8_t i, int8_t j) {
+
+	// Do a check for the range of i and j
+	if(!(i<4 && j<16)) { exit(EXIT_FAILURE); }
+
+	// Calculating all necessary parameters
+	double Ta = Calc_Ta(mlx);
+	double Vir_Compensated = Calc_Vir_Compensated(mlx, i, j, Ta);
+	double Alpha_Compensated = Calc_Alpha_Compensated(mlx, i, j, Ta);
+	double Ks4 = Calc_Ks4(mlx);
+	double TaK4 = pow(Ta+ABSOLUTE_TEMP, 4);
+
+	// Calculating Sx
+	double tmp1 = pow(Alpha_Compensated, 3)*Vir_Compensated;
+	double tmp2 = pow(Alpha_Compensated, 4)*TaK4;
+	double Sx = Ks4*pow(tmp1+tmp2, 1/4);
+
+	// Calculating T0
+	double tmp3 = Alpha_Compensated*(1-Ks4*ABSOLUTE_TEMP) + Sx;
+	double t0 = pow((Vir_Compensated/tmp3)+TaK4, 1/4) - ABSOLUTE_TEMP;
+
+	return t0;
 }
 
 
