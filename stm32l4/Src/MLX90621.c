@@ -53,7 +53,7 @@
  * \param uint16_t * dest destination for read data
  * \retval HAL_Status
  */
-HAL_StatusTypeDef MLX_Read(MLXHandle_t * mlx, uint16_t cmd, uint16_t slave_addr,
+HAL_StatusTypeDef MLX_Read(MLXHandle_t * mlx, uint8_t cmd, uint16_t slave_addr,
 		uint8_t * dest, uint16_t destSize)
 {
 	 return HAL_I2C_Mem_Read(mlx->i2c, slave_addr, cmd, sizeof(cmd), dest, destSize, MLXPOLL_DELAY);
@@ -91,26 +91,9 @@ MLXHandle_t * MLX_Init(I2C_HandleTypeDef * hi2c)
 	//Read whole EEPROM
 	uint8_t tempEEPROM[256];
 
-
-	tempEEPROM[0xDA] = 0x20;
-	tempEEPROM[0xDB] = 0x64;
-	tempEEPROM[0xDC] = 0x89;
-	tempEEPROM[0XDD] = 0x55;
-	tempEEPROM[0XDE] = 0x7E;
-	tempEEPROM[0XDF] = 0x5E;
-	tempEEPROM[0XD2] = 0x8B;
-
 	// POSSIBLE FIX?
-	/*uint8_t xz[1] = {READ_WHOLE_EEPROM};
-	if(HAL_OK == HAL_I2C_Master_Sequential_Transmit_IT(mlx->i2c, MLX_I2C_WRITE_EEPROM, xz, 1, I2C_FIRST_FRAME)) {
-		if(HAL_OK != HAL_I2C_Master_Sequential_Receive_IT(mlx->i2c,
-				MLX_I2C_READ_EEPROM, tempEEPROM, 256, I2C_FIRST_FRAME)) {
-			return NULL;
-		}
-	}*/
-
-	if (HAL_OK != MLX_Read(mlx, READ_WHOLE_EEPROM, MLX_I2C_READ_EEPROM,
-			tempEEPROM, sizeof(*tempEEPROM*265))) {
+	if (HAL_OK != MLX_Read(mlx, READ_WHOLE_EEPROM, MLX_I2C_WRITE_EEPROM,
+			tempEEPROM, 256)) {
 		free(mlx);
 		return NULL;
 	}

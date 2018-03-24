@@ -106,13 +106,13 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  MLXHandle_t * mlx_test = MLX_Init(&hi2c1);
+
 	  if(HAL_OK == MLX_Read_IT(mlx_test)) {
 		  for(uint8_t i = 0; i < 4; i++) {
 			  for(uint8_t j = 0; j < 16; j++) {
-				  /*double t0 = MLX_CalcTemp(mlx_test, i, j);
-				  Jank(t0);*/
-				  double ta = Calc_Ta(mlx_test);
-				  Jank(ta);
+				  double t0 = MLX_CalcTemp(mlx_test, i, j);
+				  Jank(t0);
 			  }
 		  }
 	  }
